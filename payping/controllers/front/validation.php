@@ -265,37 +265,32 @@ class PayPingValidationModuleFrontController extends ModuleFrontController
 						$Status = 'failed';
 						$Fault = 'Curl Error.';
 						echo $Message = 'خطا در ارتباط به پی‌پینگ : شرح خطا '.$err;
-					}else{
-						if ($header['http_code'] == 200) {
-							
-							//check double spending
-                            $sql = 'SELECT JSON_EXTRACT(payment, "$.payping_id") FROM `' . _DB_PREFIX_ . 'orders` WHERE id_order  = "' . $order_id . '" AND JSON_EXTRACT(payment, "$.payping_id")   = "' . $order_id . '"';
-                            $exist = Db::getInstance()->executes($sql);
-                            if($verify_order_id !== $order_id or count($exist) == 0){
+					}elseif( $header['http_code'] == 200 ){
+						//check double spending
+						$sql = 'SELECT JSON_EXTRACT(payment, "$.payping_id") FROM `' . _DB_PREFIX_ . 'orders` WHERE id_order  = "' . $order_id . '" AND JSON_EXTRACT(payment, "$.payping_id")   = "' . $order_id . '"';
+						$exist = Db::getInstance()->executes($sql);
+						if($verify_order_id !== $order_id or count($exist) == 0){
+							$msgForSaveDataTDataBase = $this->otherStatusMessages(0) . "کد پیگیری: $refId";
+							$this->saveOrder($msgForSaveDataTDataBase, 8, $order_id);
+							$msg = $this->payping_get_failed_message($refId, $verify_order_id, 0);
+							$this->errors[] = $msg;
+							$this->notification();
+							Tools::redirect('index.php?controller=order-confirmation');
+						}
 
-                                $msgForSaveDataTDataBase = $this->otherStatusMessages(0) . "کد پیگیری: $refId";
-                                $this->saveOrder($msgForSaveDataTDataBase, 8, $order_id);
-                                $msg = $this->payping_get_failed_message($refId, $verify_order_id, 0);
-                                $this->errors[] = $msg;
-                                $this->notification();
-                                Tools::redirect('index.php?controller=order-confirmation');
-                            }
+						if(Configuration::get('payping_currency') == "toman"){
+							$amount /= 10;
+						}
 
+						$msgForSaveDataTDataBase = $this->otherStatusMessages(200) . "کد پیگیری:  $refId";
+						$this->saveOrder($msgForSaveDataTDataBase,Configuration::get('PS_OS_PAYMENT'),$order_id);
 
-                            if(Configuration::get('payping_currency') == "toman"){
-                                $amount /= 10;
-                            }
-
-                            $msgForSaveDataTDataBase = $this->otherStatusMessages(200) . "کد پیگیری:  $refId";
-                            $this->saveOrder($msgForSaveDataTDataBase,Configuration::get('PS_OS_PAYMENT'),$order_id);
-
-                            $this->success[] = $this->payping_get_success_message($refId, $verify_order_id, 200);
-                            $this->notification();
-                            /**
-                             * Redirect the customer to the order confirmation page
-                             */
-                            Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$order->id_cart . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
-					}
+						$this->success[] = $this->payping_get_success_message($refId, $verify_order_id, 200);
+						$this->notification();
+						/**
+						 * Redirect the customer to the order confirmation page
+						 */
+						Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$order->id_cart . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
 			}else{
 				echo $payping -> error($payping -> l('There is a problem.'));
 			}
