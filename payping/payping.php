@@ -1,19 +1,17 @@
 <?php
 /**
- * PayPing - A Sample Payment Module for PrestaShop 1.7
+ * PayPing - A Payment Module for PrestaShop 1.7
  *
  * This file is the declaration of the module.
  *
- * @author Andresa Martins <contact@andresa.dev>
+ * @author Mahdi Sarani <sarani@payping.ir>
  * @license https://opensource.org/licenses/afl-3.0.php
  */
-if (!defined('_PS_VERSION_')) {
+if (!defined('_PS_VERSION_')){
     exit;
 }
 
-class PayPing extends PaymentModule
-{
-
+class PayPing extends PaymentModule{
 
     private $_html = '';
     private $_postErrors = array();
@@ -25,8 +23,7 @@ class PayPing extends PaymentModule
      *
      * Set the information about this module
      */
-    public function __construct()
-    {
+    public function __construct(){
         $this->name = 'payping';
         $this->tab = 'payments_gateways';
         $this->version = '2.0';
@@ -48,8 +45,7 @@ class PayPing extends PaymentModule
      *
      * @return bool
      */
-    public function install()
-    {
+    public function install(){
         return parent::install()
             && $this->registerHook('paymentOptions')
             && $this->registerHook('paymentReturn');
@@ -60,8 +56,7 @@ class PayPing extends PaymentModule
      *
      * @return bool
      */
-    public function uninstall()
-    {
+    public function uninstall(){
         return parent::uninstall();
     }
 
@@ -71,8 +66,7 @@ class PayPing extends PaymentModule
      *
      * @return string
      */
-    public function getContent()
-    {
+    public function getContent(){
 
         if (Tools::isSubmit('payping_submit')) {
             Configuration::updateValue('payping_api_key', $_POST['payping_api_key']);
@@ -88,12 +82,10 @@ class PayPing extends PaymentModule
 
     }
 
-
     /**
      * generate setting form for admin
      */
-    private function _generateForm()
-    {
+    private function _generateForm(){
         $this->_html .= '<div align="center"><form action="' . $_SERVER['REQUEST_URI'] . '" method="post">';
         $this->_html .= $this->l('API KEY :') . '<br><br>';
         $this->_html .= '<input type="text" name="payping_api_key" value="' . Configuration::get('payping_api_key') . '" ><br><br>';
@@ -109,15 +101,13 @@ class PayPing extends PaymentModule
         $this->_html .= '</form><br></div>';
     }
 
-
     /**
      * Display this module as a payment option during the checkout
      *
      * @param array $params
      * @return array|void
      */
-    public function hookPaymentOptions($params)
-    {
+    public function hookPaymentOptions($params){
         /*
          * Verify if this module is active
          */
@@ -168,8 +158,7 @@ class PayPing extends PaymentModule
      * @param array $params
      * @return string
      */
-    public function hookPaymentReturn($params)
-    {
+    public function hookPaymentReturn($params){
         /**
          * Verify if this module is enabled
          */
@@ -181,8 +170,7 @@ class PayPing extends PaymentModule
     }
 
 
-    public function hash_key()
-    {
+    public function hash_key(){
         $en = array('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z');
         $one = rand(1, 26);
         $two = rand(1, 26);
