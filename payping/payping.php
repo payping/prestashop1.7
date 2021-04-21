@@ -178,5 +178,4 @@ class PayPing extends PaymentModule{
         return $hash = $en[$one] . rand(0, 9) . rand(0, 9) . $en[$two] . $en[$three] . rand(0, 9) . rand(10, 99);
     }
 
-
 }

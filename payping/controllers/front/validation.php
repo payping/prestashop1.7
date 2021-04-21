@@ -79,7 +79,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
                 break;
             }
         }
-
+		
         if(!$authorized){
             $this->errors[] = 'This payment method is not available.';
             $this->notification();
@@ -88,7 +88,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
              */
             Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$cart->id . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
         }
-
+		
         /**
          * Check if this is a vlaid customer account
          */
@@ -113,7 +113,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
             false,
             $customer->secure_key
         );
-
+		
         //get order id
         $sql = ' SELECT  `id_order`  FROM `' . _DB_PREFIX_ . 'orders` WHERE `id_cart` = "' . $cart->id . '"';
         $order_id = Db::getInstance()->executeS($sql);
@@ -139,72 +139,75 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
         // There is not any email field in the cart details.
         // So we gather the customer email from this line of code:
         $mail = Context::getContext()->customer->email;
-
-        $desc = $Description = 'پرداخت سفارش شماره: ' . $cart->id;
-        $url = $this->context->link->getModuleLink('payping', 'validation', array(), true);
-        $callback = $url . '?do=callback&hash=' . md5($amount . $order_id . Configuration::get('payping_HASH_KEY'));
-
-        if(empty($amount)){
+		$url = Context::getContext()->link->getModuleLink(
+			'payping',
+			'validation',
+			array(),
+			null,
+			null,
+			Configuration::get('PS_SHOP_DEFAULT')
+		);
+        $desc = 'پرداخت سفارش شماره: '.$cart->id;
+		$hash = md5( $amount.$order_id );
+        $callback = $url.'?do=callback&hash='.$hash;
+		
+        if( empty($amount) ){
             $this->errors[] = $this->otherStatusMessages(404);
             $this->notification();
             Tools::redirect('index.php?controller=order-confirmation');
         }
-
+		
 		$amount = $amount;
 		$callbackUrl = $callback;
 		$orderId = $order_id;
 		$Description = $desc;
+		$arrgs = array( 
+							'amount'        => $amount,
+							'payerName'     => $name,
+							'payerIdentity' => $phone,
+							'returnUrl'     => $callbackUrl,
+							'Description'   => $Description,
+							'clientRefId'   => $orderId 
+						);
 		try{
-			$curl = curl_init();
-			curl_setopt_array($curl, array(
-					CURLOPT_URL => "https://api.payping.ir/v2/pay",
-					CURLOPT_RETURNTRANSFER => true,
-					CURLOPT_ENCODING => "",
-					CURLOPT_MAXREDIRS => 10,
-					CURLOPT_TIMEOUT => 30,
-					CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-					CURLOPT_CUSTOMREQUEST => "POST",
-					CURLOPT_POSTFIELDS => json_encode(array('Amount' => $amount, 'returnUrl' => $callbackUrl, 'Description' => $Description , 'clientRefId' => $orderId )),
-					CURLOPT_HTTPHEADER => array(
-						"accept: application/json",
-						"authorization: Bearer " . Configuration::get('payping_api_key'),
-						"cache-control: no-cache",
-						"content-type: application/json"),
-				)
-			);
+			$curl = curl_init('https://api.payping.ir/v2/pay');
+			curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($arrgs));
+			curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
+			curl_setopt($curl, CURLOPT_HTTPHEADER, array(
+				"Accept: application/json",
+				"Content-Type: application/json",
+				"Authorization: Bearer ". Configuration::get('payping_api_key')
+			));
 			$response = curl_exec($curl);
-			$header = curl_getinfo($curl);
-			$err = curl_error($curl);
+			$response = json_decode( $response, true );
+			$http_status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 			curl_close($curl);
-			
+			$ppPayCode = $response['code'];
+
 			$msg = [
-				'payping_id' => $response['code'],
+				'payping_id' => $ppPayCode,
 				'msg' => "در انتظار پرداخت...",
 			];
 			$msg = json_encode($msg, JSON_UNESCAPED_UNICODE);
 			$sql = ' UPDATE `' . _DB_PREFIX_ . 'orders` SET `current_state` = "' . 13 . '", `payment` = ' . "'" . $msg . "'" . ' WHERE `id_order` = "' . $order_id . '"';
 			Db::getInstance()->Execute($sql);
 			
-			if ($err) {
-				echo "cURL Error #:" . $err;
-			} else {
-				if ($header['http_code'] == 200) {
-					$response = json_decode($response, true);
-					if (isset($response["code"]) and $response["code"] != '') {
-						echo $this->success($this->l('Redirecting...'));
-						echo '<script>window.location=("https://api.payping.ir/v2/pay/gotoipg/' . $response['code'] . '");</script>';
-						exit;
-					} else {
-						echo $this->error($this->l('There is a problem in get code.').$e->getMessage());
-					}
-				} elseif ($header['http_code'] == 400) {
-					echo $this->error($this->l('There is a problem.'). implode('. ',array_values (json_decode($response,true)))) ;
-				} else {
-					echo $this->error($this->l('There is a problem.').$this->status_message($header['http_code']) . '(' . $header['http_code'] . ')' );
+			if ($http_status == 200){
+
+				if( isset( $ppPayCode ) and $ppPayCode != '') {
+					echo 'درحال انتقال به دروازه پرداخت...';
+					header("Location: https://api.payping.ir/v2/pay/gotoipg/".$ppPayCode);
+					exit;
+				}else{
+					echo 'خطایی در دریافت کد پرداخت وجود دارد.';
 				}
+			} elseif ($http_status == 400) {
+				echo 'خطای اتصال به وبسرویس'. implode('. ',array_values (json_decode($response,true))) ;
+			} else {
+				echo 'خطا در هنگام اتصال به بانک'.$this->otherStatusMessages($http_status).'(' . $http_status . ')';
 			}
 		}catch(Exception $e){
-			echo $this->error($this->l('There curl is a problem.').$e->getMessage());
+			echo 'خطای وبسرویس'.$e->getMessage();
 		}
     }
 
@@ -220,49 +223,37 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 			$verify_order_id = $_GET['clientrefid'];
 		}
 		if( isset( $_POST['refid'] ) && !empty( $_POST['refid'] ) ){
-			$orderId = $_POST['refid'];
+			$refId = $_POST['refid'];
 		}else{
-			$orderId = $_GET['refid'];
+			$refId = $_GET['refid'];
 		}
 		if( isset( $_POST['amount'] ) && !empty( $_POST['amount'] ) ){
-			$orderId = $_POST['amount'];
+			$amount = $_POST['amount'];
 		}else{
-			$orderId = $_GET['amount'];
+			$amount = $_GET['amount'];
 		}
 		if( isset( $_POST['hash'] ) && !empty( $_POST['hash'] ) ){
-			$orderId = $_POST['hash'];
+			$hash = $_POST['hash'];
 		}else{
-			$orderId = $_GET['hash'];
+			$hash = $_GET['hash'];
 		}
 		$order_id = $orderId;
-		if( md5($amount.$orderId.Configuration::get('payping_HASH_KEY') ) == $hash ){
-			$curl = curl_init();
-			curl_setopt_array($curl, array(
-				CURLOPT_URL => "https://api.payping.ir/v2/pay/verify",
-				CURLOPT_RETURNTRANSFER => true,
-				CURLOPT_ENCODING => "",
-				CURLOPT_MAXREDIRS => 10,
-				CURLOPT_TIMEOUT => 45,
-				CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-				CURLOPT_CUSTOMREQUEST => "POST",
-				CURLOPT_POSTFIELDS => json_encode(array('refId' => $refId , 'amount' => $amount)),
-				CURLOPT_HTTPHEADER => array(
-					"accept: application/json",
-					"authorization: Bearer ".Configuration::get('payping_api_key'),
-					"cache-control: no-cache",
-					"content-type: application/json",
-				),
+		if( md5($amount.$orderId ) == $hash ){
+			$arrgs = array('refId' => $refId , 'amount' => $amount);
+			$curl = curl_init('https://api.payping.ir/v2/pay/verify');
+			curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($arrgs));
+			curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
+			curl_setopt($curl, CURLOPT_HTTPHEADER, array(
+				"Accept: application/json",
+				"Content-Type: application/json",
+				"Authorization: Bearer ". Configuration::get('payping_api_key')
 			));
 			$response = curl_exec($curl);
-			$err = curl_error($curl);
-			$header = curl_getinfo($curl);
+			$response = json_decode( $response, true );
+			$http_status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 			curl_close($curl);
-
-			if($err){
-				$Status = 'failed';
-				$Fault = 'Curl Error.';
-				echo $Message = 'خطا در ارتباط به پی‌پینگ : شرح خطا '.$err;
-			}elseif( $header['http_code'] == 200 ){
+			
+			if( $http_status == 200 ){
 				//check double spending
 				$sql = 'SELECT JSON_EXTRACT(payment, "$.payping_id") FROM `' . _DB_PREFIX_ . 'orders` WHERE id_order  = "' . $order_id . '" AND JSON_EXTRACT(payment, "$.payping_id")   = "' . $order_id . '"';
 				$exist = Db::getInstance()->executes($sql);
@@ -279,7 +270,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 					$amount /= 10;
 				}
 
-				$msgForSaveDataTDataBase = $this->otherStatusMessages(200) . "کد پیگیری:  $refId";
+				$msgForSaveDataTDataBase = $this->otherStatusMessages(200) . "شناسه پیگیری:  $refId";
 				$this->saveOrder($msgForSaveDataTDataBase,Configuration::get('PS_OS_PAYMENT'),$order_id);
 
 				$this->success[] = $this->payping_get_success_message($refId, $verify_order_id, 200);
@@ -289,7 +280,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 				 */
 				Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$order->id_cart . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
 			}else{
-				echo $payping -> error($payping -> l('There is a problem.'));
+				echo 'خطا در تایید پرداخت!';
 			}
 		}
 	}
