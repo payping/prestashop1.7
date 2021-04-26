@@ -36,7 +36,6 @@ class PayPing extends PaymentModule{
         $this->description = 'درگاه پرداخت پی‌پینگ';
         $this->confirmUninstall = 'Are you sure you want to uninstall this module?';
         $this->ps_versions_compliancy = array('min' => '1.7.0', 'max' => _PS_VERSION_);
-        $this->bootstrap = true;
         parent::__construct();
     }
 

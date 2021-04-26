@@ -60,8 +60,7 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 
         /** @var CustomerCore $customer */
         $customer = new Customer($cart->id_customer);
-
-
+		
         /**
          * Verify if this module is enabled and if the cart has
          * a valid customer, delivery address and invoice address
@@ -83,10 +82,6 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
         if(!$authorized){
             $this->errors[] = 'This payment method is not available.';
             $this->notification();
-            /**
-             * Redirect the customer to the order confirmation page
-             */
-            Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$cart->id . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
         }
 		
         /**
@@ -95,13 +90,70 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
         if(!Validate::isLoadedObject($customer)){
             Tools::redirect('index.php?controller=order&step=1');
         }
+		
+		//call callBack function
+        if( isset($_GET['do']) && $_GET['do'] == 'callback' ){
+			if( isset( $_POST['clientrefid'] ) && !empty( $_POST['clientrefid'] ) ){
+				$orderId = $_POST['clientrefid'];
+				$verify_order_id = $_POST['clientrefid'];
+			}else{
+				$orderId = $_GET['clientrefid'];
+				$verify_order_id = $_GET['clientrefid'];
+			}
+			if( isset( $_POST['refid'] ) && !empty( $_POST['refid'] ) ){
+				$refId = $_POST['refid'];
+			}else{
+				$refId = $_GET['refid'];
+			}
+			if( isset( $_POST['hash'] ) && !empty( $_POST['hash'] ) ){
+				$hash = $_POST['hash'];
+			}else{
+				$hash = $_GET['hash'];
+			}
+			$order = new Order((int)$orderId);
+			$amount = intval( $order->total_paid );
+			if(Configuration::get('payping_currency') == "toman"){
+            	$amount *= 10;
+        	}
+            $order_id = $orderId;
+			/* start verify */
+			if( md5($amount.$order_id ) == $hash ){
+				
+				$arrgs = array('refId' => $refId , 'amount' => $amount);
+				$curl = curl_init('https://api.payping.ir/v2/pay/verify');
+				curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($arrgs));
+				curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
+				curl_setopt($curl, CURLOPT_HTTPHEADER, array(
+					"Accept: application/json",
+					"Content-Type: application/json",
+					"Authorization: Bearer ". Configuration::get('payping_api_key')
+				));
+				$response = curl_exec($curl);
+				$response = json_decode( $response, true );
+				$http_status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+				curl_close($curl);
+				
+				if( $http_status == 200 ){
+					$msgso = $this->otherStatusMessages(200) . "شناسه پیگیری:  $refId";
+					$this->saveOrder($msgso, 2, $order_id);
+					$this->success[] = $this->payping_get_success_message($refId, $order_id, 200);
+					$this->notification();
 
-
-        //call callBack function
-        if(isset($_GET['do'])){
-            $this->callBack($customer);
+					/**
+					 * Redirect the customer to the order confirmation page
+					 */
+					Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$order->id_cart . '&id_module='.(int)$this->module->id.'&id_order=' . $order_id . '&key=' . $customer->secure_key);
+				}else{
+					echo 'خطا در تایید پرداخت!';
+					Tools::redirect('index.php?controller=order-confirmation');
+				}
+			}else{
+				echo 'خطای ناشناخته برای اعتبارسنجی!';
+				Tools::redirect('index.php?controller=order-confirmation');
+			}
+			/* end verify */
         }
-
+		
         $this->module->validateOrder(
             (int)$this->context->cart->id,
             13,
@@ -119,7 +171,6 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
         $order_id = Db::getInstance()->executeS($sql);
         $order_id = $order_id[0]['id_order'];
 
-        $api_key = Configuration::get('payping_api_key');
         $sandbox = Configuration::get('payping_sandbox') == 'yes' ? 'true' : 'false';
         $amount = $cart->getOrderTotal();
         if(Configuration::get('payping_currency') == "toman"){
@@ -185,8 +236,8 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 			$ppPayCode = $response['code'];
 
 			$msg = [
-				'payping_id' => $ppPayCode,
-				'msg' => "در انتظار پرداخت...",
+				'CodePay' => $ppPayCode,
+				'Message' => "در انتظار پرداخت",
 			];
 			$msg = json_encode($msg, JSON_UNESCAPED_UNICODE);
 			$sql = ' UPDATE `' . _DB_PREFIX_ . 'orders` SET `current_state` = "' . 13 . '", `payment` = ' . "'" . $msg . "'" . ' WHERE `id_order` = "' . $order_id . '"';
@@ -195,7 +246,6 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 			if ($http_status == 200){
 
 				if( isset( $ppPayCode ) and $ppPayCode != '') {
-					echo 'درحال انتقال به دروازه پرداخت...';
 					header("Location: https://api.payping.ir/v2/pay/gotoipg/".$ppPayCode);
 					exit;
 				}else{
@@ -210,81 +260,6 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
 			echo 'خطای وبسرویس'.$e->getMessage();
 		}
     }
-
-    /**
-     * @param $customer
-     */
-    public function callBack($customer){
-		if( isset( $_POST['clientrefid'] ) && !empty( $_POST['clientrefid'] ) ){
-			$orderId = $_POST['clientrefid'];
-			$verify_order_id = $_POST['clientrefid'];
-		}else{
-			$orderId = $_GET['clientrefid'];
-			$verify_order_id = $_GET['clientrefid'];
-		}
-		if( isset( $_POST['refid'] ) && !empty( $_POST['refid'] ) ){
-			$refId = $_POST['refid'];
-		}else{
-			$refId = $_GET['refid'];
-		}
-		if( isset( $_POST['amount'] ) && !empty( $_POST['amount'] ) ){
-			$amount = $_POST['amount'];
-		}else{
-			$amount = $_GET['amount'];
-		}
-		if( isset( $_POST['hash'] ) && !empty( $_POST['hash'] ) ){
-			$hash = $_POST['hash'];
-		}else{
-			$hash = $_GET['hash'];
-		}
-		$order_id = $orderId;
-		if( md5($amount.$orderId ) == $hash ){
-			$arrgs = array('refId' => $refId , 'amount' => $amount);
-			$curl = curl_init('https://api.payping.ir/v2/pay/verify');
-			curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($arrgs));
-			curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
-			curl_setopt($curl, CURLOPT_HTTPHEADER, array(
-				"Accept: application/json",
-				"Content-Type: application/json",
-				"Authorization: Bearer ". Configuration::get('payping_api_key')
-			));
-			$response = curl_exec($curl);
-			$response = json_decode( $response, true );
-			$http_status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-			curl_close($curl);
-			
-			if( $http_status == 200 ){
-				//check double spending
-				$sql = 'SELECT JSON_EXTRACT(payment, "$.payping_id") FROM `' . _DB_PREFIX_ . 'orders` WHERE id_order  = "' . $order_id . '" AND JSON_EXTRACT(payment, "$.payping_id")   = "' . $order_id . '"';
-				$exist = Db::getInstance()->executes($sql);
-				if($verify_order_id !== $order_id or count($exist) == 0){
-					$msgForSaveDataTDataBase = $this->otherStatusMessages(0) . "کد پیگیری: $refId";
-					$this->saveOrder($msgForSaveDataTDataBase, 8, $order_id);
-					$msg = $this->payping_get_failed_message($refId, $verify_order_id, 0);
-					$this->errors[] = $msg;
-					$this->notification();
-					Tools::redirect('index.php?controller=order-confirmation');
-				}
-
-				if(Configuration::get('payping_currency') == "toman"){
-					$amount /= 10;
-				}
-
-				$msgForSaveDataTDataBase = $this->otherStatusMessages(200) . "شناسه پیگیری:  $refId";
-				$this->saveOrder($msgForSaveDataTDataBase,Configuration::get('PS_OS_PAYMENT'),$order_id);
-
-				$this->success[] = $this->payping_get_success_message($refId, $verify_order_id, 200);
-				$this->notification();
-				/**
-				 * Redirect the customer to the order confirmation page
-				 */
-				Tools::redirect('index.php?controller=order-confirmation&id_cart=' . (int)$order->id_cart . '&id_module=' . (int)$this->module->id . '&id_order=' . $this->module->currentOrder . '&key=' . $customer->secure_key);
-			}else{
-				echo 'خطا در تایید پرداخت!';
-			}
-		}
-	}
-
     /**
      * @param $msgForSaveDataTDataBase
      * @param $paymentStatus
@@ -355,6 +330,10 @@ class PayPingValidationModuleFrontController extends ModuleFrontController{
         }
         return $msg . ' -وضعیت: ' . "$msgNumber";
     }
+}
 
-
+function dd( $res ){
+	echo '<pre dir="ltr">';
+	var_dump( $res );
+	die();
 }
